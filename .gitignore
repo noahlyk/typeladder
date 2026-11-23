@@ -1,0 +1,9 @@
+/target
+/data
+/state
+/config
+*.bak
+*.part
+/pkg
+/src/typeladder-*
+*.pkg.tar.*

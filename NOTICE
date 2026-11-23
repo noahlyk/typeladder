@@ -1,0 +1,38 @@
+typeladder: third-party and derived material
+============================================
+
+typeladder is licensed under the GNU General Public License, version 3 or (at your
+option) any later version (GPL-3.0-or-later); see LICENSE. This file lists what
+in this repository, or what typeladder downloads for you, comes from other
+projects, and the terms it is under. It is a record kept by the maintainer, not
+legal advice.
+
+1. lyk-steno-theory (derived code)
+----------------------------------
+
+Upstream:  lyk-steno-theory, https://github.com/noahlyk/lyk-steno-theory
+Copyright: noahlyk (the author of both projects)
+License:   GNU GPL version 3 or later
+
+The adaptive test (the word feed, the vocabulary and its rules, the typing engine and the
+results screen: `src/practice/`, `src/vocab.rs`) was extracted from lyk-steno-theory's
+`lyk practice` and `lyk vocab` and made engine-agnostic. The format of `vocab.json` is the same,
+so a lyk vocabulary loads unchanged.
+
+2. Monkeytype word lists (downloaded, and the 200-word list built in)
+---------------------------------------------------------------------
+
+Upstream:  Monkeytype, https://github.com/monkeytypegame/monkeytype
+           (frontend/static/languages/english*.json)
+License:   GNU GPL version 3
+
+`typeladder fetch` (and the first run) downloads the lists `english`, `english_1k`,
+`english_5k`, `english_10k`, `english_25k` and `english_450k` into the data folder.
+`assets/monkeytype-english.json` is a copy of the 200-word `english` list, built into the
+program so the first run works offline.
+
+3. Monkeytype's results screen (a design reference only)
+--------------------------------------------------------
+
+The results screen imitates the layout of Monkeytype's (big wpm and accuracy, a chart, character
+counts); no Monkeytype code is used for it.
