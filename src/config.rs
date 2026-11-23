@@ -170,6 +170,39 @@ pub fn load_lists(paths: &[String]) -> (Vec<UserList>, Vec<String>) {
 mod tests {
     use super::*;
 
+    /// Every key and section of `config.toml`: docs/config.md must name each one.
+    const KEYS: [&str; 14] = [
+        "accept",
+        "hints",
+        "phrases",
+        "auto_fetch",
+        "lists",
+        "[seed]",
+        "usage",
+        "[hooks]",
+        "before_session",
+        "after_session",
+        "before_test",
+        "after_test",
+        "[dictionary.\"NAME\"]",
+        "direction",
+    ];
+
+    #[test]
+    fn the_config_reference_names_every_key() {
+        let doc = include_str!("../docs/config.md");
+        for key in KEYS {
+            assert!(
+                doc.contains(&format!("`{key}`")) || doc.contains(&format!("### {key}")) || doc.contains(key),
+                "docs/config.md does not mention {key}"
+            );
+        }
+        // and the example config of this file's header parses
+        assert!(
+            Config::parse("accept = [\"text\"]\nhints = false\nphrases = false\nauto_fetch = true\nlists = []\n[seed]\n[hooks]\n").is_ok()
+        );
+    }
+
     #[test]
     fn no_file_and_an_empty_file_are_the_defaults() {
         assert_eq!(Config::parse("").unwrap(), Config::default());

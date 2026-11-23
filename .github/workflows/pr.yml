@@ -1,0 +1,39 @@
+name: Check branches
+
+# This repository takes no pull requests: work lands by fast-forwarding main. Any push to
+# another branch is checked and a tarball is built, so a branch is known good before it lands.
+on:
+  push:
+    branches-ignore: [main]
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  build:
+    needs: [check]
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install system dependencies
+        run: pacman -Syu --noconfirm base-devel git rust
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Build tarball
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cargo build --release --locked
+          ARCH=$(uname -m)
+          mkdir -p typeladder-linux-${ARCH}
+          mv target/release/typeladder typeladder-linux-${ARCH}/
+          cp README.md LICENSE NOTICE docs/config.md typeladder-linux-${ARCH}/
+          tar -czf typeladder-linux-${ARCH}.tar.gz -C typeladder-linux-${ARCH} .
+          sha256sum typeladder-linux-${ARCH}.tar.gz > typeladder-linux-${ARCH}.sha256
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: typeladder-linux
+          path: |
+            typeladder-linux-*.tar.gz
+            typeladder-linux-*.sha256

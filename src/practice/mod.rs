@@ -440,16 +440,17 @@ impl Feeder {
                 let mut words = a.feed(args, seed, size - extra);
                 let tracked = words.len();
                 if extra > 0 {
-                    let units = feed::build(
-                        vec![phrases.to_vec()],
-                        &feed::Opts {
+                    // a phrase is never cut short: only those that fit the room are drawn
+                    let fitting: Vec<String> = phrases.iter().filter(|p| p.split_whitespace().count() <= extra).cloned().collect();
+                    if !fitting.is_empty() {
+                        let opts = feed::Opts {
                             count: extra,
                             no_repeat: false,
                             weighted: false,
                             ..feed_opts(args, seed)
-                        },
-                    );
-                    words.extend(units);
+                        };
+                        words.extend(feed::build(vec![fitting], &opts));
+                    }
                 }
                 Feed { words, tracked }
             }

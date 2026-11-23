@@ -1,0 +1,31 @@
+name: Check
+
+# The bar every change is held to: formatted, no clippy finding, every test green (the tests
+# include the docs check: docs/config.md names every config key), and the release binary builds
+# and runs. Called by the PR and release workflows, so a release never ships what a branch
+# push couldn't.
+on:
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install system dependencies
+        run: pacman -Syu --noconfirm base-devel git rust
+      - uses: actions/checkout@v5
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --release --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --release --locked -- --test-threads=4
+      - name: Build and smoke test
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cargo build --release --locked
+          target/release/typeladder --version
+          export TYPELADDER_CONFIG_DIR=$RUNNER_TEMP/c TYPELADDER_DATA_DIR=$RUNNER_TEMP/d TYPELADDER_STATE_DIR=$RUNNER_TEMP/s
+          target/release/typeladder where
+          target/release/typeladder vocab
