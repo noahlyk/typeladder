@@ -34,6 +34,9 @@ const MONKEYTYPE: [(&str, &str); 5] = [
     ("english_10k", "monkeytype 10k"),
     ("english_25k", "monkeytype 25k"),
 ];
+/// The goal key of lyk's own "top 20k" tier, which an imported `vocab.json` may carry: no such
+/// tier exists here.
+pub const LYK_KEY: &str = "lyk";
 /// A user list's goal key starts with this.
 pub const LIST_PREFIX: &str = "list:";
 const DEEP_KEY: &str = "deep";
@@ -200,6 +203,9 @@ pub fn goal_label(goal: &str) -> String {
     }
     if let Some(name) = goal.strip_prefix(LIST_PREFIX) {
         return format!("list {name}");
+    }
+    if goal == LYK_KEY {
+        return "lyk top 20k".to_owned();
     }
     MONKEYTYPE
         .iter()
@@ -477,6 +483,12 @@ mod tests {
         assert_eq!(goal_label("english_1k"), "monkeytype 1k");
         assert_eq!(goal_label("words:3000"), "the first 3000 words");
         assert_eq!(goal_label("list:mine"), "list mine");
+        assert_eq!(
+            goal_label("lyk"),
+            "lyk top 20k",
+            "a goal imported from lyk is named, though it has no tier here"
+        );
+        assert_eq!(parse_goal("lyk"), None);
     }
 
     #[test]

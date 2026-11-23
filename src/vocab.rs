@@ -921,6 +921,10 @@ fn goal_command(args: &Args, ucfg: &UserConfig, dicts: &Dictionaries, vocab: &mu
                 tiers::bar(k, n, 10),
                 tiers::percent(k, n)
             ),
+            None if g == tiers::LYK_KEY => println!(
+                "goal: {} (lyk's own tier: there is none here; `typeladder vocab goal 5k` sets another, `clear` removes it)",
+                tiers::goal_label(g)
+            ),
             None => println!(
                 "goal: {} (its list is not on file{})",
                 tiers::goal_label(g),
