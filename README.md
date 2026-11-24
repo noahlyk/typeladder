@@ -1,5 +1,7 @@
 # typeladder
 
+![typeladder's results screen: wpm and accuracy, the per-second chart, the words stuck and learning, and the level bar](docs/images/results.png)
+
 An adaptive typing test. It builds your vocabulary from the commonest word to the rarest
 (Monkeytype's English 200, then 1k, 5k, 10k, 25k, then your own lists), re-drills what you miss,
 retires what you have mastered and brings it back later for review. Every test ends on a
