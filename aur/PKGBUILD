@@ -1,7 +1,8 @@
 # Maintainer: noahlyk <noahlykins@gmail.com>
 #
 # The AUR package: the release binary, not a build from source. The release workflow bumps
-# pkgver and pushes this folder to the AUR when the AUR_SSH_KEY secret is set.
+# pkgver, fills in the real sha256sums (updpkgsums; the SKIPs here are placeholders and the push
+# fails if one is left) and pushes this folder to the AUR when the AUR_SSH_KEY secret is set.
 pkgname=typeladder
 pkgver=0.1.0
 pkgrel=1

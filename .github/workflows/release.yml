@@ -164,7 +164,7 @@ jobs:
             exit 0
           fi
           VERSION=${{ needs.version.outputs.new_version }}
-          pacman -Syu --noconfirm openssh git sudo base-devel
+          pacman -Syu --noconfirm openssh git sudo base-devel pacman-contrib
 
           useradd -m builduser
           echo "builduser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
@@ -180,6 +180,14 @@ jobs:
           cp -r aur /home/builduser/aur
           sed -i "s/^pkgver=.*/pkgver=$VERSION/" /home/builduser/aur/PKGBUILD
           chown -R builduser:builduser /home/builduser/aur
+
+          # real checksums of the release files and of LICENSE and NOTICE at the tag, then a check
+          # that every source downloads and matches them
+          sudo -u builduser bash -c 'cd /home/builduser/aur && updpkgsums && makepkg --verifysource --noconfirm'
+          if grep -q SKIP /home/builduser/aur/PKGBUILD; then
+            echo "a checksum is still SKIP: not pushing"
+            exit 1
+          fi
 
           sudo -u builduser VERSION="$VERSION" GIT_SSH_COMMAND="ssh -i /home/builduser/.ssh/aur -o StrictHostKeyChecking=no" bash -c '
             cd /home/builduser
