@@ -1,6 +1,7 @@
 [package]
 name = "typeladder"
 version = "0.1.0"
+authors = ["noahlyk <noahlykins@gmail.com>"]
 description = "An adaptive typing test that builds your vocabulary from the commonest word to the rarest"
 license = "GPL-3.0-or-later"
 edition = "2024"
