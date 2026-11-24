@@ -3,7 +3,7 @@
 # Local build of the checkout this file sits in (no source download, no AUR): `make pkg` or
 # `makepkg -si`. `make pkg` keeps makepkg's work folders out of the repository's own src/.
 pkgname=typeladder
-pkgver=0.1.3
+pkgver=0.1.4
 pkgrel=1
 pkgdesc="Adaptive typing test: builds your vocabulary from the commonest word to the rarest, for any keyboard, steno engine or text expander"
 arch=('x86_64' 'aarch64')
