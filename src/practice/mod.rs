@@ -554,7 +554,8 @@ impl Adaptive {
 
 /// The attempts of a test, in order: the words `--stop-on-error` refused (misses), then each
 /// committed word with the time since the one before it (none for the first, which carries no
-/// recall time). An attempt is a hit only when the word was right and needed no correction. Only
+/// recall time). An attempt is a hit only when the word was right and needed no correction. A slip
+/// (the word before or after typed in this word's place) is no attempt at all. Only
 /// the first `tracked` words of the test count (the rest are phrases).
 fn attempts_of(session: &Session, tracked: usize) -> Vec<adaptive::Attempt> {
     let planned: HashSet<&str> = session.words.iter().take(tracked).map(String::as_str).collect();
@@ -570,13 +571,21 @@ fn attempts_of(session: &Session, tracked: usize) -> Vec<adaptive::Attempt> {
             secs: None,
         })
         .collect();
-    out.extend(session.done.iter().enumerate().take(tracked).map(|(i, d)| adaptive::Attempt {
-        word: d.target.clone(),
-        hit: d.clean(),
-        stumbles: d.stumbles,
-        redo: d.clean() && d.redos > 0,
-        secs: (i > 0).then_some(d.secs),
-    }));
+    out.extend(
+        session
+            .done
+            .iter()
+            .enumerate()
+            .take(tracked)
+            .filter(|(_, d)| !d.slip)
+            .map(|(i, d)| adaptive::Attempt {
+                word: d.target.clone(),
+                hit: d.clean(),
+                stumbles: d.stumbles,
+                redo: d.clean() && d.redos > 0,
+                secs: (i > 0).then_some(d.secs),
+            }),
+    );
     out
 }
 
@@ -976,6 +985,24 @@ mod tests {
             (false, true, 2),
             "the refusal is the miss; deleting the refused word is not a second one: {got:?}"
         );
+    }
+
+    #[test]
+    fn a_word_typed_in_the_wrong_place_is_no_attempt_for_either_word() {
+        // "the cat sat" read one ahead: cat typed where the was due, then the rest put right
+        let mut s = Session::new(["the", "cat", "sat"].map(String::from).to_vec(), false);
+        for c in "cat cat sat".chars() {
+            s.apply(Input::Char(c), 1.0);
+        }
+        let got: Vec<(String, bool)> = attempts_of(&s, usize::MAX).into_iter().map(|a| (a.word, a.hit)).collect();
+        assert_eq!(got, [("cat".to_owned(), true), ("sat".to_owned(), true)], "the slip is no attempt");
+        // a wrong word that is no neighbour is still the open word's miss
+        let mut s = Session::new(["the", "cat", "sat"].map(String::from).to_vec(), false);
+        for c in "the dog sat".chars() {
+            s.apply(Input::Char(c), 1.0);
+        }
+        let got: Vec<bool> = attempts_of(&s, usize::MAX).into_iter().map(|a| a.hit).collect();
+        assert_eq!(got, [true, false, true]);
     }
 
     #[test]

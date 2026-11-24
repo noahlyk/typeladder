@@ -40,7 +40,10 @@ No config, no dictionaries, no steno: that is a working setup. Keys: type, `spac
 - **Stumbles count.** A word you had wrong and corrected before committing it is not clean.
 - **Redos count a quarter.** Undoing a word that was already right and typing it again is a redo:
   a quarter of a miss (`9 of 10` still masters with up to four redos and no miss), and a review word
-  that was redone holds its level. An undo never counts against the word before it.
+  that was redone holds its level. An undo never counts against the word before it, or against
+  older right words it runs back over.
+- **Slips are nothing.** The word before or after typed in a word's place (reading one ahead) is a
+  slip, not a miss: it counts for neither word. Any other wrong word is the due word's miss.
 
 ## Configuration
 

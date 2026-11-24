@@ -19,7 +19,14 @@
 //! word, such as a misstroke that dropped a key) is a stumble. The whole right word erased while
 //! it is open is a **redo** (second-guessing a right stroke), which the vocabulary counts as a
 //! quarter of a miss. A right word only *reopened* over its space counts for nothing: an engine
-//! that puts its space before each word does that whenever it undoes the next word.
+//! that puts its space before each word does that whenever it undoes the next word, and an undo
+//! that runs on over older right words is one run that began on the wrong (or redone) word.
+//!
+//! A **slip** is the right word in the wrong place: the word just before or just after the open
+//! one (or one of their codes) committed in its place, a misreading of the line, not a failure to
+//! recall. It is no attempt of either word, is not put back, and is not listed as a miss; erasing
+//! it (or the start of it, when that is not also the start of the open word) is not a stumble.
+//! Everything else wrong is the open word's miss or stumble.
 
 use std::collections::{HashMap, HashSet};
 
@@ -45,6 +52,9 @@ pub struct Done {
     pub redos: u32,
     /// Typed as one of the word's codes, not as the word (accept mode)
     pub code: bool,
+    /// Committed as the word before or after it (or one of their codes): the right word in the
+    /// wrong place, a slip of reading, not of recall. It counts for neither word.
+    pub slip: bool,
     /// Where the copy put back after this word sits in `words`, and the filler word it replaced
     queued: Option<(usize, String)>,
 }
@@ -318,7 +328,10 @@ impl Session {
     fn stumble(&mut self, reopened: bool) {
         if !self.removing && !self.refused_open {
             if !self.is_right(&self.typed) {
-                self.stumbles += 1;
+                // the word before or after (or the start of it) typed here is a slip, not a stumble
+                if !self.neighbour(&self.typed, true) {
+                    self.stumbles += 1;
+                }
             } else if !reopened {
                 self.redos += 1;
             }
@@ -392,7 +405,12 @@ impl Session {
         }
         // a word committed short has no wrong key to show for it
         b.errors += u32::from(short);
+        let slip = !right && self.neighbour(&self.typed, false);
         if !right && self.stop_on_error {
+            if slip {
+                // the right word in the wrong place: refused, but not a miss of this word
+                return;
+            }
             self.refused.push(Miss {
                 word: target,
                 typed: self.typed.clone(),
@@ -413,16 +431,37 @@ impl Session {
             stumbles,
             redos,
             code,
+            slip,
             queued: None,
         };
         // a word that was missed or needed a correction comes back
-        if !right || stumbles > 0 {
+        if (!right && !slip) || stumbles > 0 {
             done.queued = self.put_back_missed(&target);
         }
         self.done.push(done);
         if self.done.len() >= self.words.len() {
             self.finish(now);
         }
+    }
+
+    /// Whether `text` is the word just before or just after the open one (or one of their codes):
+    /// the right word in the wrong place. With `prefix`, the start of one of them counts too, when
+    /// it is not also the start of the open word.
+    fn neighbour(&self, text: &str, prefix: bool) -> bool {
+        let Some(target) = self.target() else { return false };
+        if text.is_empty() || (prefix && target.starts_with(text)) {
+            return false;
+        }
+        let at = self.done.len();
+        [at.checked_sub(1), Some(at + 1)]
+            .into_iter()
+            .flatten()
+            .filter_map(|j| self.words.get(j))
+            .filter(|w| *w != target)
+            .any(|w| {
+                let fits = |form: &str| form == text || (prefix && form.starts_with(text));
+                fits(w) || self.alts(w).iter().any(|a| fits(a))
+            })
     }
 
     /// Whether `typed` is the open word or one of its accepted codes.
@@ -480,7 +519,7 @@ impl Session {
         let marks = self
             .done
             .iter()
-            .filter(|d| !d.clean())
+            .filter(|d| !d.clean() && !d.slip)
             .map(|d| &d.target)
             .chain(self.refused.iter().map(|m| &m.word));
         for w in marks {
@@ -512,7 +551,7 @@ impl Session {
         let mut misses: Vec<Miss> = self
             .done
             .iter()
-            .filter(|d| !d.correct())
+            .filter(|d| !d.correct() && !d.slip)
             .map(|d| Miss {
                 word: d.target.clone(),
                 typed: d.typed.clone(),
@@ -769,6 +808,69 @@ mod tests {
         for _ in 0..=word.chars().count() {
             s.apply(Input::Backspace, now);
         }
+    }
+
+    #[test]
+    fn an_undo_that_goes_back_over_older_right_words_blames_none_of_them() {
+        // sax is a misstroke of sat; the undo runs on over cat and the, which were right
+        let mut s = session(&["the", "cat", "sat", "mat"], false);
+        type_str(&mut s, "the cat sax", 1.0);
+        star(&mut s, "sax", 1.1);
+        star(&mut s, "cat", 1.2);
+        assert_eq!((s.current(), s.typed.as_str()), (0, "the"));
+        type_str(&mut s, " cat sat mat", 1.3);
+        assert_eq!(stumbles(&s), [0, 0, 1, 0], "{:?}", s.done);
+        assert!(s.done.iter().all(|d| d.redos == 0), "{:?}", s.done);
+        // the same over-undo starting on a right word: a redo of sat, nothing for the others
+        let mut s = session(&["the", "cat", "sat", "mat"], false);
+        type_str(&mut s, "the cat sat", 1.0);
+        star(&mut s, "sat", 1.1);
+        star(&mut s, "cat", 1.2);
+        type_str(&mut s, " cat sat mat", 1.3);
+        assert_eq!(stumbles(&s), [0, 0, 0, 0]);
+        let redos: Vec<u32> = s.done.iter().map(|d| d.redos).collect();
+        assert_eq!(redos, [0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn the_word_before_or_after_typed_in_its_place_is_a_slip_not_a_miss_or_a_stumble() {
+        // read one ahead and committed: a slip, not a miss, and not put back
+        let mut s = session(&["the", "cat", "sat", "dd"], false).with_requeue(2, fillers(&["dd"]));
+        type_str(&mut s, "cat ", 1.0);
+        assert!(s.done[0].slip && !s.done[0].correct());
+        assert!(s.results(2.0).misses.is_empty() && s.unclean().is_empty());
+        assert_eq!(s.words, ["the", "cat", "sat", "dd"].map(String::from), "a slip is not put back");
+        // read one ahead, noticed and undone before the commit: no stumble of the open word
+        let mut s = session(&["the", "cat", "sat"], false);
+        type_str(&mut s, "the", 1.0);
+        type_str(&mut s, " sat", 1.1);
+        star(&mut s, "sat", 1.2);
+        type_str(&mut s, " cat sat", 1.3);
+        assert_eq!(stumbles(&s), [0, 0, 0], "{:?}", s.done);
+        // the start of the next word typed by hand and erased: no stumble either
+        let mut s = session(&["the", "cat", "sat"], false);
+        type_str(&mut s, "the sa", 1.0);
+        for _ in 0..2 {
+            s.apply(Input::Backspace, 1.1);
+        }
+        type_str(&mut s, "cat sat", 1.2);
+        assert_eq!(stumbles(&s), [0, 0, 0]);
+        // the word before typed again in place of the open one: a slip too
+        let mut s = session(&["the", "cat", "sat"], false);
+        type_str(&mut s, "the the cat sat", 1.0);
+        assert!(s.done[1].slip, "{:?}", s.done);
+        // anything else wrong is still the open word's miss and stumble
+        let mut s = session(&["the", "cat", "sat"], false);
+        type_str(&mut s, "the dog", 1.0);
+        for _ in 0..3 {
+            s.apply(Input::Backspace, 1.1);
+        }
+        type_str(&mut s, "cat sat", 1.2);
+        assert_eq!(stumbles(&s), [0, 1, 0]);
+        // stop on error: the slip is refused but is no miss
+        let mut s = session(&["the", "cat"], true);
+        type_str(&mut s, "cat ", 1.0);
+        assert!(s.refusals().is_empty() && s.done.is_empty());
     }
 
     #[test]

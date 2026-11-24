@@ -63,6 +63,14 @@ Erasing the whole right word is now a redo, worth a quarter of a miss (`REDO_CRE
 in a word's window): the habit still costs something, in step with how often it happens, and mastery
 takes up to four redos in ten with no miss. A redone review word holds its level.
 
+## The word before or after, typed in place, is a slip
+
+The aim is to score what the typist meant to type. Typing the neighbouring word (reading one ahead,
+or the last word again) shows the word is known; charging the due word a miss for it measured
+reading, not recall. A slip is no attempt for either word. Only the immediate neighbours count: a
+misstroke that happens to write a word two places away is still a miss. The cost: a misstroke that
+writes exactly the next word (`fine` for `find` before `fine`) also goes unscored, which is rare.
+
 ## Formatting and lints
 
 rustfmt with `max_width = 140`, clippy pedantic and nursery with `-D warnings`; `too_many_lines`
