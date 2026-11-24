@@ -5,6 +5,10 @@ description = "An adaptive typing test that builds your vocabulary from the comm
 license = "GPL-3.0-or-later"
 edition = "2024"
 repository = "https://github.com/noahlyk/typeladder"
+homepage = "https://noahlyk.github.io/typeladder/"
+readme = "README.md"
+keywords = ["typing", "typing-test", "steno", "vocabulary", "tui"]
+categories = ["command-line-utilities", "text-processing"]
 build = "build.rs"
 
 [[bin]]

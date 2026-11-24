@@ -139,9 +139,19 @@ jobs:
         run: |
           VERSION=${{ needs.version.outputs.new_version }}
           gh release delete "v${VERSION}" --yes 2>/dev/null || true
+          PREV=$(git describe --tags --abbrev=0 "v${VERSION}^" 2>/dev/null || true)
+          {
+            echo "![typeladder's results screen](https://raw.githubusercontent.com/noahlyk/typeladder/v${VERSION}/docs/images/results.png)"
+            echo
+            echo "**Install:** \`yay -S typeladder\` (AUR), or download the tarball for your architecture below. [Website](https://noahlyk.github.io/typeladder/)"
+            echo
+            echo "## Changes"
+            echo
+            git log --no-merges --format='- %s' ${PREV:+$PREV..}"v${VERSION}" | grep -v '^- chore: bump version' || true
+          } > release-notes.md
           gh release create "v${VERSION}" \
             --title "v${VERSION}" \
-            --notes "Release v${VERSION}" \
+            --notes-file release-notes.md \
             dist/typeladder-${VERSION}-*.tar.gz \
             dist/typeladder-${VERSION}-*.sha256
         env:
