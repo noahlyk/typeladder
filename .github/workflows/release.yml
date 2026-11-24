@@ -188,7 +188,7 @@ jobs:
           SUM=$(curl -fsSL "https://github.com/noahlyk/typeladder/releases/download/v${VERSION}/typeladder-${VERSION}-aarch64.sha256" | cut -d' ' -f1)
           [ ${#SUM} -eq 64 ] || { echo "no aarch64 checksum in the release"; exit 1; }
           sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$SUM')/" /home/builduser/aur/PKGBUILD
-          if grep -q SKIP /home/builduser/aur/PKGBUILD; then
+          if grep -q "'SKIP'" /home/builduser/aur/PKGBUILD; then
             echo "a checksum is still SKIP: not pushing"
             exit 1
           fi
