@@ -4,7 +4,7 @@
 # pkgver, fills in the real sha256sums (updpkgsums; the SKIPs here are placeholders and the push
 # fails if one is left) and pushes this folder to the AUR when the AUR_SSH_KEY secret is set.
 pkgname=typeladder
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Adaptive typing test: builds your vocabulary from the commonest word to the rarest, for any keyboard, steno engine or text expander"
 arch=('x86_64' 'aarch64')
