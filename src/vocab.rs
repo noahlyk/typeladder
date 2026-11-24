@@ -33,6 +33,15 @@ use std::path::{Path, PathBuf};
 pub const VERSION: u32 = 1;
 /// How many of the last results of a word are kept.
 pub const WORD_WINDOW: usize = 10;
+/// What a redo (a right word erased and typed again) is worth in a word's window: a quarter of a
+/// miss. Marked `h` in `recent`, beside `1` (clean) and `0` (miss).
+pub const REDO_CREDIT: f64 = 0.75;
+
+/// A clean count that may hold quarters (`8.75`), written without trailing zeros (`9`, `8.5`).
+#[must_use]
+pub fn fmt_clean(x: f64) -> String {
+    format!("{x:.2}").trim_end_matches('0').trim_end_matches('.').to_owned()
+}
 /// How many of the last results over all words are kept.
 pub const GLOBAL_WINDOW: usize = 50;
 /// How many tests' easy-base results are kept for the second gate.
@@ -125,21 +134,35 @@ const fn is_false(b: &bool) -> bool {
 }
 
 impl Word {
-    /// Right answers in the window, and its length.
+    /// Clean answers in the window (a redo counts `REDO_CREDIT`), and its length.
     #[must_use]
-    pub fn window(&self) -> (usize, usize) {
-        (self.recent.bytes().filter(|b| *b == b'1').count(), self.recent.len())
+    pub fn window(&self) -> (f64, usize) {
+        let ok = self
+            .recent
+            .bytes()
+            .map(|b| match b {
+                b'1' => 1.0,
+                b'h' => REDO_CREDIT,
+                _ => 0.0,
+            })
+            .sum();
+        (ok, self.recent.len())
     }
 
     /// Share of wrong answers in the window (0 with none).
     #[must_use]
     pub fn error_rate(&self) -> f64 {
         let (ok, n) = self.window();
-        if n == 0 { 0.0 } else { (n - ok) as f64 / n as f64 }
+        if n == 0 { 0.0 } else { (n as f64 - ok) / n as f64 }
     }
 
     pub fn push_result(&mut self, ok: bool) {
-        self.recent.push(if ok { '1' } else { '0' });
+        self.push_mark(if ok { '1' } else { '0' });
+    }
+
+    /// Records one attempt in the window: `1` clean, `h` a redo, `0` a miss.
+    pub fn push_mark(&mut self, mark: char) {
+        self.recent.push(mark);
         if self.recent.len() > WORD_WINDOW {
             self.recent.remove(0);
         }
@@ -1104,8 +1127,10 @@ pub fn stuck_report(vocab: &Vocab, extras: &BTreeMap<String, StuckExtra>, json: 
         };
         let _ = write!(
             out,
-            "  {w:<14} recent {ok}/{n} clean, {since:.0}% of {} since learning, {} stumbles",
-            s.learn_n, s.stumbles
+            "  {w:<14} recent {}/{n} clean, {since:.0}% of {} since learning, {} stumbles",
+            fmt_clean(ok),
+            s.learn_n,
+            s.stumbles
         );
         if !e.codes.is_empty() {
             let _ = write!(out, ";  {}", e.codes.join("  "));
@@ -1207,7 +1232,8 @@ pub fn summary(vocab: &Vocab, cfg: &Config, today: u32, frontier: &Frontier, tie
         let (ok, n) = s.window();
         let _ = writeln!(
             out,
-            "  {w:<16} {ok}/{n} recent   {} days   {} attempts{}",
+            "  {w:<16} {}/{n} recent   {} days   {} attempts{}",
+            fmt_clean(ok),
             s.days,
             s.attempts,
             if s.stuck { "   stuck" } else { "" }
@@ -1544,7 +1570,7 @@ mod tests {
                 assert!(
                     x.is_number()
                         || (k == "status" && x.is_string())
-                        || (k == "recent" && x.as_str().is_some_and(|s| s.chars().all(|c| c == '0' || c == '1'))),
+                        || (k == "recent" && x.as_str().is_some_and(|s| s.chars().all(|c| matches!(c, '0' | '1' | 'h')))),
                     "{k}: {x}"
                 );
             }
@@ -1918,7 +1944,7 @@ mod tests {
         assert_eq!(json["stuck"], 2);
         assert_eq!(json["words"][1]["word"], "to");
         assert_eq!(json["words"][1]["codes"][0], "TO");
-        assert_eq!(json["words"][1]["recent_clean"], 2);
+        assert_eq!(json["words"][1]["recent_clean"], 2.0, "a redo makes it fractional");
         assert_eq!(json["words"][1]["stumbles"], 69);
         assert_eq!(json["words"][0]["codes"].as_array().map(Vec::len), Some(0));
         assert_eq!(

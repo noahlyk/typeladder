@@ -37,7 +37,10 @@ No config, no dictionaries, no steno: that is a working setup. Keys: type, `spac
 - **Mastery.** A learning word becomes review at 9 clean of its last 10 attempts, and fast enough.
   A word that stays unclean is marked stuck: it leaves the learning cap and is drilled lightly.
 - **Review.** Known words return after 1, 3, 7, 21, 60, 180 days; a miss moves a word down a level.
-- **Stumbles count.** A word corrected before you commit it is not clean.
+- **Stumbles count.** A word you had wrong and corrected before committing it is not clean.
+- **Redos count a quarter.** Undoing a word that was already right and typing it again is a redo:
+  a quarter of a miss (`9 of 10` still masters with up to four redos and no miss), and a review word
+  that was redone holds its level. An undo never counts against the word before it.
 
 ## Configuration
 

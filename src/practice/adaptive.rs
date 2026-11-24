@@ -9,7 +9,9 @@
 //! `retired`. A learning word may be `stuck`: it then does not count against the learning cap.
 //!
 //! - **Clean attempts.** An attempt is a `hit` only when the word committed right *and* had no
-//!   correction while it was typed (a stumble: a backspace run or word delete). A typist whose
+//!   correction of something wrong while it was typed (a stumble: a backspace run or word delete).
+//!   Erasing the finished right word and typing it again is a *redo* (see `engine`): a clean
+//!   attempt worth `REDO_CREDIT` (0.75) in the word's window, a quarter of a miss. A typist whose
 //!   corrections precede the commit would otherwise score every word clean.
 //! - **Earning a new word.** A new word enters when (a) fewer than `learning_cap` (10) words are
 //!   learning (stuck ones not counted), (b) the *easy base* is clean enough: the clean share of the
@@ -33,7 +35,7 @@
 //! - **Review.** Intervals by level: 1, 3, 7, 21, 60, 180 days. A due review word is in the next
 //!   test; passed (every attempt right) it moves up a level and is due one interval later; a miss
 //!   moves it down one level (never below 1) and makes it due tomorrow; two misses in a row
-//!   send it back to learning. A stumble is a miss.
+//!   send it back to learning. A stumble is a miss; a redo holds the word's level.
 //! - **A test** has exactly `count` words. Learning words (new and stuck included) fill at most
 //!   `learning_share` (40%) of it: stuck words, then the new words (twice each), then the words that
 //!   stumbled or missed in the last `stumble_sessions` (2) tests (once each, the most stumbles
@@ -156,8 +158,8 @@ pub fn learning_accuracy(vocab: &Vocab) -> Option<f64> {
         .values()
         .filter(|w| w.status == Status::Learning)
         .map(Word::window)
-        .fold((0, 0), |(a, b), (o, n)| (a + o, b + n));
-    (n > 0).then(|| ok as f64 / n as f64)
+        .fold((0.0, 0), |(a, b), (o, n)| (a + o, b + n));
+    (n > 0).then(|| ok / n as f64)
 }
 
 /// The share of right answers over the last `GLOBAL_WINDOW` attempts of every word; none before
@@ -497,6 +499,9 @@ pub struct Attempt {
     pub hit: bool,
     /// Corrections made while typing it
     pub stumbles: u32,
+    /// A clean attempt that was erased while right and typed again: worth `REDO_CREDIT` in the
+    /// word's window, and a review word passes it without moving up
+    pub redo: bool,
     /// Seconds since the word before, when that carries a recall time (not the first word)
     pub secs: Option<f64>,
 }
@@ -560,7 +565,7 @@ fn median_speed(vocab: &Vocab, cfg: &Config) -> Option<f64> {
 fn mastered(w: &Word, median: Option<f64>, cfg: &Config) -> bool {
     let (ok, n) = w.window();
     n >= WORD_WINDOW
-        && ok as f64 / n as f64 >= cfg.mastery_accuracy
+        && ok / n as f64 >= cfg.mastery_accuracy
         && match (w.speed_ms, median) {
             (Some(s), Some(m)) => s <= cfg.speed_factor * m,
             _ => true,
@@ -599,6 +604,8 @@ fn record_stumble(w: &mut Word, stumbles: u32, id: u32, day: u32) {
 #[derive(Default)]
 struct Touch {
     missed: bool,
+    /// Redone in this test: a review word holds its level instead of moving up
+    redone: bool,
     demoted: bool,
     relearned: bool,
 }
@@ -654,7 +661,11 @@ pub fn apply(vocab: &mut Vocab, attempts: &[Attempt], cfg: &Config, day: u32) ->
             w.learn_hits += u32::from(a.hit);
         }
         w.hits += u32::from(a.hit);
-        w.push_result(a.hit);
+        w.push_mark(match (a.hit, a.redo) {
+            (true, false) => '1',
+            (true, true) => 'h',
+            (false, _) => '0',
+        });
         if !a.hit {
             record_stumble(w, a.stumbles, id, day);
         }
@@ -673,6 +684,7 @@ pub fn apply(vocab: &mut Vocab, attempts: &[Attempt], cfg: &Config, day: u32) ->
             w.last_seen = day;
         }
         let t = touched.entry(a.word.clone()).or_default();
+        t.redone |= a.hit && a.redo;
         if !a.hit {
             t.missed = true;
             if w.status == Status::Review {
@@ -724,7 +736,7 @@ pub fn apply(vocab: &mut Vocab, attempts: &[Attempt], cfg: &Config, day: u32) ->
                 w.streak = 0;
                 summary.mastered.push(word.clone());
             }
-            Status::Review if !t.missed && w.due <= day => {
+            Status::Review if !t.missed && !t.redone && w.due <= day => {
                 w.level = (w.level + 1).min(6);
                 w.due = day + cfg.intervals[usize::from(w.level) - 1];
                 w.promotions += 1;
@@ -742,7 +754,7 @@ pub fn apply(vocab: &mut Vocab, attempts: &[Attempt], cfg: &Config, day: u32) ->
         }
         if w.stuck {
             let (ok, n) = w.window();
-            if n >= WORD_WINDOW && ok as f64 / n as f64 >= cfg.mastery_accuracy && active < cfg.learning_cap {
+            if n >= WORD_WINDOW && ok / n as f64 >= cfg.mastery_accuracy && active < cfg.learning_cap {
                 w.stuck = false;
                 active += 1;
                 summary.unstuck.push(word.clone());
@@ -804,6 +816,7 @@ mod tests {
             word: w.into(),
             hit: true,
             stumbles: 0,
+            redo: false,
             secs: Some(1.0),
         }
     }
@@ -814,6 +827,7 @@ mod tests {
             word: w.into(),
             hit: false,
             stumbles: n,
+            redo: false,
             secs: Some(2.0),
         }
     }
@@ -823,6 +837,7 @@ mod tests {
             word: w.into(),
             hit: false,
             stumbles: 0,
+            redo: false,
             secs: None,
         }
     }
@@ -1186,6 +1201,7 @@ mod tests {
                 word: "dog".into(),
                 hit: true,
                 stumbles: 0,
+                redo: false,
                 secs: Some(2.0),
             }],
             &cfg(),
@@ -1292,12 +1308,14 @@ mod tests {
                     word: "slow".into(),
                     hit: true,
                     stumbles: 0,
+                    redo: false,
                     secs: Some(2.4),
                 },
                 Attempt {
                     word: "ok".into(),
                     hit: true,
                     stumbles: 0,
+                    redo: false,
                     secs: Some(1.4),
                 },
             ],
@@ -1384,6 +1402,39 @@ mod tests {
         apply(&mut v, &[miss("cat")], &cfg(), 60);
         assert_eq!(v.words["cat"].level, 1);
         assert_eq!(v.words["cat"].status, Status::Review);
+    }
+
+    /// Right, but erased while right and typed again (a redo).
+    fn redo(w: &str) -> Attempt {
+        Attempt { redo: true, ..hit(w) }
+    }
+
+    #[test]
+    fn a_redo_is_a_quarter_of_a_miss() {
+        // 6 clean and 4 redos: 9 of 10, mastered; 5 clean and 5 redos: 8.75, not yet
+        for (redos, mastered) in [(4, true), (5, false)] {
+            let mut v = Vocab::default();
+            v.words.insert("cat".into(), learning("", 1));
+            let attempts: Vec<Attempt> = (0..10).map(|i| if i < redos { redo("cat") } else { hit("cat") }).collect();
+            let s = apply(&mut v, &attempts, &cfg(), 60);
+            assert_eq!(s.mastered.len() == 1, mastered, "{redos} redos: {:?}", v.words["cat"]);
+            assert_eq!(v.words["cat"].recent.matches('h').count(), redos);
+            assert!(v.words["cat"].stumbles == 0, "a redo is not a stumble");
+        }
+        // a due review word that was redone holds its level: not passed, not demoted
+        let mut v = Vocab::default();
+        v.words.insert(
+            "cat".into(),
+            Word {
+                status: Status::Review,
+                level: 3,
+                due: 60,
+                ..Word::default()
+            },
+        );
+        let s = apply(&mut v, &[redo("cat")], &cfg(), 60);
+        assert!(s.promoted.is_empty() && s.demoted.is_empty(), "{s:?}");
+        assert_eq!((v.words["cat"].level, v.words["cat"].status), (3, Status::Review));
     }
 
     #[test]
@@ -2362,6 +2413,7 @@ mod tests {
                     word: w.clone(),
                     hit: learner.rng.below(2) == 0,
                     stumbles: 1,
+                    redo: false,
                     secs: Some(1.0),
                 })
                 .collect();

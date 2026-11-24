@@ -8,11 +8,18 @@
 //! With accept mode ([`Session::with_codes`]) a word typed as one of its codes counts as right
 //! too, and the commit records which form was typed.
 //!
-//! A **stumble** is a correction while a word was being typed: any run of backspaces or a word
-//! delete that removed characters of the word, or reopened it after its space. A run of
-//! backspaces (an engine's undo over a whole word) is one stumble. A word that committed right after a
-//! stumble is not clean: the typist's corrections come before the commit, so the committed word
-//! alone hides them.
+//! A **stumble** is a correction of something wrong while a word was being typed: a run of
+//! backspaces or a word delete that removed characters of the word, or reopened it after its
+//! space. A run of backspaces (an engine's undo over a whole word) is one stumble. A word that
+//! committed right after a stumble is not clean: the typist's corrections come before the commit,
+//! so the committed word alone hides them.
+//!
+//! Erasing a *finished right word* is not a stumble. What decides is the text when the run of
+//! removals starts: anything but the whole word or one of its codes (a wrong word, or part of the
+//! word, such as a misstroke that dropped a key) is a stumble. The whole right word erased while
+//! it is open is a **redo** (second-guessing a right stroke), which the vocabulary counts as a
+//! quarter of a miss. A right word only *reopened* over its space counts for nothing: an engine
+//! that puts its space before each word does that whenever it undoes the next word.
 
 use std::collections::{HashMap, HashSet};
 
@@ -34,6 +41,8 @@ pub struct Done {
     pub secs: f64,
     /// Corrections made while the word was open (runs of backspaces or word deletes)
     pub stumbles: u32,
+    /// Times a finished right word was erased while it was open and typed again (second-guessing)
+    pub redos: u32,
     /// Typed as one of the word's codes, not as the word (accept mode)
     pub code: bool,
     /// Where the copy put back after this word sits in `words`, and the filler word it replaced
@@ -145,8 +154,10 @@ pub struct Session {
     refused: Vec<Miss>,
     /// Corrections so far in the open word
     stumbles: u32,
-    /// The corrections of the words after a reopened one, kept until the typist gets back to them
-    ahead: Vec<u32>,
+    /// Redos so far in the open word (a finished right word erased)
+    redos: u32,
+    /// The corrections and redos of the words after a reopened one, kept until the typist gets back to them
+    ahead: Vec<(u32, u32)>,
     /// The last thing done was a removal (a run of backspaces counts once)
     removing: bool,
     /// The open word was refused (`stop_on_error`): that is already a miss, its deletes do not count
@@ -174,6 +185,7 @@ impl Session {
             key_bad: 0,
             refused: Vec::new(),
             stumbles: 0,
+            redos: 0,
             ahead: Vec::new(),
             removing: false,
             refused_open: false,
@@ -284,25 +296,32 @@ impl Session {
                 if self.typed.is_empty() {
                     self.reopen();
                 } else {
+                    self.stumble(false);
                     self.typed.pop();
-                    self.stumble();
                 }
             }
             Input::DeleteWord => {
                 if self.typed.is_empty() {
                     self.reopen();
                 } else {
-                    self.stumble();
+                    self.stumble(false);
                 }
                 self.typed.clear();
             }
         }
     }
 
-    /// A removal from the open word: one stumble per run of removals.
-    const fn stumble(&mut self) {
+    /// A removal from the open word (`reopened`: the word was just reopened over its space). Per
+    /// run of removals: a stumble when the run began on wrong text; a redo when it began on the
+    /// finished right word; nothing when a right word was only reopened (an engine that puts its
+    /// space before each word does that when it undoes the next word).
+    fn stumble(&mut self, reopened: bool) {
         if !self.removing && !self.refused_open {
-            self.stumbles += 1;
+            if !self.is_right(&self.typed) {
+                self.stumbles += 1;
+            } else if !reopened {
+                self.redos += 1;
+            }
         }
         self.removing = true;
     }
@@ -383,13 +402,16 @@ impl Session {
         }
         let secs = (now - self.last_commit).max(0.0);
         self.last_commit = now;
-        let stumbles = std::mem::replace(&mut self.stumbles, self.ahead.pop().unwrap_or(0));
+        let (next_stumbles, next_redos) = self.ahead.pop().unwrap_or((0, 0));
+        let stumbles = std::mem::replace(&mut self.stumbles, next_stumbles);
+        let redos = std::mem::replace(&mut self.redos, next_redos);
         self.refused_open = false;
         let mut done = Done {
             target: target.clone(),
             typed: std::mem::take(&mut self.typed),
             secs,
             stumbles,
+            redos,
             code,
             queued: None,
         };
@@ -409,18 +431,19 @@ impl Session {
     }
 
     /// Backspace over the space after the previous word: it is open again, as typed, and that
-    /// is a correction of it. The copy put back after it is taken back.
+    /// is a correction of it when it was wrong. The copy put back after it is taken back.
     fn reopen(&mut self) {
         if let Some(prev) = self.done.pop() {
             if let Some((at, old)) = prev.queued {
                 self.take_back(&prev.target, at, old);
             }
             self.typed = prev.typed;
-            self.ahead.push(self.stumbles);
+            self.ahead.push((self.stumbles, self.redos));
             self.stumbles = prev.stumbles;
+            self.redos = prev.redos;
             self.refused_open = false;
             self.removing = false;
-            self.stumble();
+            self.stumble(true);
         }
     }
 
@@ -690,7 +713,7 @@ mod tests {
         assert!(d.correct() && !d.clean(), "committed right but not clean");
         assert_eq!(s.results(2.0).errors, 0, "the committed word is right");
         assert_eq!(s.results(2.0).stumbled, [("the".to_owned(), 1)]);
-        // two separate corrections count twice, and a lone backspace of a right letter counts too
+        // two separate corrections count twice, and a backspace over part of the word counts too
         type_str(&mut s, "cx", 2.0);
         s.apply(Input::Backspace, 2.1);
         type_str(&mut s, "a", 2.2);
@@ -710,14 +733,14 @@ mod tests {
     }
 
     #[test]
-    fn backspacing_over_the_space_reopens_the_word_and_counts_against_it() {
+    fn backspacing_over_the_space_reopens_the_word_and_counts_against_it_only_when_it_was_wrong() {
         let mut s = session(&["the", "cat"], false);
         type_str(&mut s, "the ", 1.0);
         assert_eq!(stumbles(&s), [0]);
         s.apply(Input::Backspace, 1.1); // over the space: "the" is open again
         assert_eq!((s.current(), s.typed.as_str()), (0, "the"));
         s.apply(Input::Char(' '), 1.2); // and committed again, as it was
-        assert_eq!(stumbles(&s), [1], "reopened once");
+        assert_eq!(stumbles(&s), [0], "a right word reopened is not a stumble");
         // a steno `*` over "cat " then retyped: the run of backspaces is one stumble of cat
         type_str(&mut s, "cat", 2.0);
         assert!(s.finished());
@@ -729,7 +752,7 @@ mod tests {
         assert_eq!((s.current(), s.typed.as_str()), (1, ""), "back to an empty cat");
         type_str(&mut s, "cat sat", 1.2);
         assert_eq!(stumbles(&s), [0, 1, 0], "{:?}", s.done);
-        // a delete that goes back over two words counts against both
+        // a delete that goes back over two right words counts against neither
         let mut s = session(&["the", "cat", "sat"], false);
         type_str(&mut s, "the cat ", 1.0);
         for _ in 0..5 {
@@ -737,7 +760,43 @@ mod tests {
         }
         assert_eq!((s.current(), s.typed.as_str()), (0, "the"), "{:?}", s.done);
         type_str(&mut s, " cat sat", 1.2);
-        assert_eq!(stumbles(&s), [1, 1, 0]);
+        assert_eq!(stumbles(&s), [0, 0, 0]);
+    }
+
+    /// A steno engine that puts its space before each word: `*` sends backspaces over the word
+    /// and then its space, which reopens the word before.
+    fn star(s: &mut Session, word: &str, now: f64) {
+        for _ in 0..=word.chars().count() {
+            s.apply(Input::Backspace, now);
+        }
+    }
+
+    #[test]
+    fn a_space_before_engine_undo_blames_only_a_wrong_word_and_never_the_word_before() {
+        // a misstroke of cat, undone and stroked again: one stumble of cat, the stays clean
+        let mut s = session(&["the", "cat", "sat"], false);
+        type_str(&mut s, "the", 1.0);
+        type_str(&mut s, " cax", 1.1);
+        star(&mut s, "cax", 1.2);
+        assert_eq!((s.current(), s.typed.as_str()), (0, "the"), "the undo reopened the");
+        type_str(&mut s, " cat", 1.3);
+        type_str(&mut s, " sat", 1.4);
+        assert_eq!(stumbles(&s), [0, 1, 0], "{:?}", s.done);
+        // a right cat undone and stroked again (second-guessing): nobody stumbled, cat is a redo
+        let mut s = session(&["the", "cat", "sat"], false);
+        type_str(&mut s, "the cat", 1.0);
+        star(&mut s, "cat", 1.1);
+        type_str(&mut s, " cat sat", 1.2);
+        assert_eq!(stumbles(&s), [0, 0, 0], "{:?}", s.done);
+        assert!(s.done.iter().all(Done::clean));
+        let redos: Vec<u32> = s.done.iter().map(|d| d.redos).collect();
+        assert_eq!(redos, [0, 1, 0], "cat was redone; the, only reopened, was not");
+        // a misstroke that wrote part of the word (a dropped key) is a stumble
+        let mut s = session(&["the", "find", "sat"], false);
+        type_str(&mut s, "the fi", 1.0);
+        star(&mut s, "fi", 1.1);
+        type_str(&mut s, " find sat", 1.2);
+        assert_eq!(stumbles(&s), [0, 1, 0], "{:?}", s.done);
     }
 
     #[test]

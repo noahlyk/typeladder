@@ -282,7 +282,7 @@ fn chip_lines(s: &Screen, width: usize) -> Vec<Line<'static>> {
         .iter()
         .map(|c| {
             (
-                format!("{} {}/{}", c.word, c.clean, crate::vocab::WORD_WINDOW),
+                format!("{} {}/{}", c.word, crate::vocab::fmt_clean(c.clean), crate::vocab::WORD_WINDOW),
                 word_style(color(c.heat)),
             )
         })
@@ -498,8 +498,8 @@ mod tests {
     }
 
     fn chips() -> Vec<Chip> {
-        let heat = |n| report::heat(n, 0.9);
-        [("find", 9), ("same", 6), ("such", 2), ("thing", 5), ("year", 0)]
+        let heat = |n: f64| report::heat(n, 0.9);
+        [("find", 9.0), ("same", 6.0), ("such", 2.0), ("thing", 5.0), ("year", 0.0)]
             .iter()
             .map(|(w, n)| Chip {
                 word: (*w).to_owned(),

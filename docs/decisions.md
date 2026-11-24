@@ -51,6 +51,18 @@ name list. First-run seeding is the Monkeytype baseline plus an optional usage f
 (`word attempts errors [days]` lines); parsing keymux's tape needs lyk's replay of undos and was not
 worth porting.
 
+## Erasing a right word is a redo, not a stumble
+
+A correction is a stumble only when the text it starts erasing is wrong (a wrong word, or part of
+the word). Two things the keymux tape showed (2026-11): steno engines put the space before each
+word, so `*` over a misstroke also deleted the space and reopened the word before, which was charged
+a stumble it never made (now: a right word that is only reopened counts for nothing); and the typist
+undoes strokes that felt wrong but were right, about a quarter of the outputs of the words that would
+not master, each of which cost a whole clean attempt. Mastery measured that habit instead of recall.
+Erasing the whole right word is now a redo, worth a quarter of a miss (`REDO_CREDIT` 0.75, mark `h`
+in a word's window): the habit still costs something, in step with how often it happens, and mastery
+takes up to four redos in ten with no miss. A redone review word holds its level.
+
 ## Formatting and lints
 
 rustfmt with `max_width = 140`, clippy pedantic and nursery with `-D warnings`; `too_many_lines`

@@ -566,6 +566,7 @@ fn attempts_of(session: &Session, tracked: usize) -> Vec<adaptive::Attempt> {
             word: m.word.clone(),
             hit: false,
             stumbles: 0,
+            redo: false,
             secs: None,
         })
         .collect();
@@ -573,6 +574,7 @@ fn attempts_of(session: &Session, tracked: usize) -> Vec<adaptive::Attempt> {
         word: d.target.clone(),
         hit: d.clean(),
         stumbles: d.stumbles,
+        redo: d.clean() && d.redos > 0,
         secs: (i > 0).then_some(d.secs),
     }));
     out
@@ -938,18 +940,21 @@ mod tests {
                     word: "the".into(),
                     hit: true,
                     stumbles: 0,
+                    redo: false,
                     secs: None
                 },
                 adaptive::Attempt {
                     word: "cat".into(),
                     hit: false,
                     stumbles: 0,
+                    redo: false,
                     secs: Some(1.5)
                 },
                 adaptive::Attempt {
                     word: "sat".into(),
                     hit: true,
                     stumbles: 0,
+                    redo: false,
                     secs: Some(0.5)
                 },
             ]

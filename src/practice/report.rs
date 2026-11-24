@@ -22,16 +22,16 @@ pub enum Heat {
 }
 
 /// A word being learned: `word 7/10`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Chip {
     pub word: String,
-    /// Clean among the last ten attempts
-    pub clean: usize,
+    /// Clean among the last ten attempts (a redo counts a quarter less)
+    pub clean: f64,
     pub heat: Heat,
 }
 
 /// What a test changed, for the panels under the numbers.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Extra {
     /// Words that were wrong or needed a correction, with how many times, in order of appearance
     pub stumbled: Vec<(String, u32)>,
@@ -49,8 +49,8 @@ pub struct Extra {
 
 /// The heat of a learning word with `clean` of its last ten right, against the mastery share.
 #[must_use]
-pub fn heat(clean: usize, mastery: f64) -> Heat {
-    let share = clean as f64 / WORD_WINDOW as f64;
+pub fn heat(clean: f64, mastery: f64) -> Heat {
+    let share = clean / WORD_WINDOW as f64;
     if share >= mastery {
         Heat::Green
     } else if share < 0.30 {
@@ -94,7 +94,7 @@ pub fn compose(before: &Vocab, after: &Vocab, stumbled: Vec<(String, u32)>, mast
         }
     }
     // BTreeMap order is alphabetical already; chips go by closeness
-    extra.chips.sort_by(|a, b| b.clean.cmp(&a.clean).then(a.word.cmp(&b.word)));
+    extra.chips.sort_by(|a, b| b.clean.total_cmp(&a.clean).then(a.word.cmp(&b.word)));
     extra
 }
 
@@ -266,7 +266,11 @@ pub fn text_lines(s: &Screen) -> Vec<String> {
         out.push(format!("stuck     {}", join(&e.stuck)));
     }
     if !e.chips.is_empty() {
-        let chips: Vec<String> = e.chips.iter().map(|c| format!("{} {}/{WORD_WINDOW}", c.word, c.clean)).collect();
+        let chips: Vec<String> = e
+            .chips
+            .iter()
+            .map(|c| format!("{} {}/{WORD_WINDOW}", c.word, crate::vocab::fmt_clean(c.clean)))
+            .collect();
         out.push(format!("wordset   {}", join(&chips)));
     }
     if let Some(p) = &s.progress {
@@ -329,8 +333,11 @@ mod tests {
         assert_eq!(e.stuck, ["gnu"]);
         assert_eq!(e.stumbled, [("dog".to_owned(), 2), ("elk".to_owned(), 1)]);
         // the learning set without the stuck word, nearest to mastery first
-        let chips: Vec<(&str, usize, Heat)> = e.chips.iter().map(|c| (c.word.as_str(), c.clean, c.heat)).collect();
-        assert_eq!(chips, [("dog", 6, Heat::Yellow), ("hen", 1, Heat::Red), ("elk", 0, Heat::Red)]);
+        let chips: Vec<(&str, f64, Heat)> = e.chips.iter().map(|c| (c.word.as_str(), c.clean, c.heat)).collect();
+        assert_eq!(
+            chips,
+            [("dog", 6.0, Heat::Yellow), ("hen", 1.0, Heat::Red), ("elk", 0.0, Heat::Red)]
+        );
         // deterministic, and nothing changes between equal snapshots
         assert_eq!(e, compose(&before, &after, vec![("dog".into(), 2), ("elk".into(), 1)], 0.9));
         let quiet = compose(&after, &after, vec![], 0.9);
@@ -343,13 +350,13 @@ mod tests {
 
     #[test]
     fn heat_runs_red_yellow_green_at_the_mastery_share() {
-        assert_eq!(heat(0, 0.9), Heat::Red);
-        assert_eq!(heat(2, 0.9), Heat::Red);
-        assert_eq!(heat(3, 0.9), Heat::Yellow);
-        assert_eq!(heat(8, 0.9), Heat::Yellow);
-        assert_eq!(heat(9, 0.9), Heat::Green);
-        assert_eq!(heat(10, 0.9), Heat::Green);
-        assert_eq!(heat(8, 0.8), Heat::Green, "the share is the configured one");
+        assert_eq!(heat(0.0, 0.9), Heat::Red);
+        assert_eq!(heat(2.0, 0.9), Heat::Red);
+        assert_eq!(heat(3.0, 0.9), Heat::Yellow);
+        assert_eq!(heat(8.0, 0.9), Heat::Yellow);
+        assert_eq!(heat(9.0, 0.9), Heat::Green);
+        assert_eq!(heat(10.0, 0.9), Heat::Green);
+        assert_eq!(heat(8.0, 0.8), Heat::Green, "the share is the configured one");
     }
 
     #[test]
@@ -396,7 +403,7 @@ mod tests {
             new: vec!["elk".into()],
             chips: vec![Chip {
                 word: "hen".into(),
-                clean: 7,
+                clean: 7.0,
                 heat: Heat::Yellow,
             }],
             ..Extra::default()
